@@ -17,6 +17,7 @@ CHANGE_FIGHTER_URL = f"{BASE_URL}/isFightMonster"
 START_FIGHT_URL = f"{BASE_URL}/startBattle"
 LIST_BATTLER_URL = f"{BASE_URL}/getBattelObjects"
 WALLET_PROPERTY_LIST = f"{BASE_URL}/getWalletPropertyList"
+RESET_METAMON_URL = f"{BASE_URL}/resetMonster"
 LVL_UP_URL = f"{BASE_URL}/updateMonster"
 MINT_EGG_URL = f"{BASE_URL}/composeMonsterEgg"
 CHECK_BAG_URL = f"{BASE_URL}/checkBag"
@@ -35,7 +36,7 @@ def post_formdata(payload, url="", headers=None):
     for _ in range(5):
         try:
             # Add delay to avoid error from too many requests per second
-            sleep(1.1)
+            sleep(0.5)
             response = requests.request("POST",
                                         url,
                                         headers=headers,
@@ -70,11 +71,6 @@ def picker_battler(monsters_list):
 
 
 def pick_battle_level(level=1):
-    # pick highest league for given level
-    if 21 <= level <= 40:
-        return 2
-    if 41 <= level <= 60:
-        return 3
     return 1
 
 
@@ -84,6 +80,7 @@ class MetamonPlayer:
                  address,
                  sign,
                  msg="LogIn",
+                 auto_reset_monster=True,
                  auto_lvl_up=False,
                  output_stats=False):
         self.no_enough_money = False
@@ -96,6 +93,7 @@ class MetamonPlayer:
         self.address = address
         self.sign = sign
         self.msg = msg
+        self.auto_reset_monster = auto_reset_monster
         self.auto_lvl_up = auto_lvl_up
 
     def init_token(self):
@@ -141,6 +139,7 @@ class MetamonPlayer:
         my_monster_id = my_monster.get("id")
         my_monster_token_id = my_monster.get("tokenId")
         my_level = my_monster.get("level")
+        my_exp = my_monster.get("exp")
         my_power = my_monster.get("sca")
         battle_level = pick_battle_level(my_level)
 
@@ -163,10 +162,22 @@ class MetamonPlayer:
                 break
             data = response.get("data", {})
             if data is None:
-                print(f"Metamon {my_monster_id} cannot fight skipping...")
+                print(f"Metamon {my_monster_token_id} cannot fight skipping...")
                 break
             fight_result = data.get("challengeResult", False)
             bp_fragment_num = data.get("bpFragmentNum", 10)
+            
+            #calculate the new experience point
+            if fight_result == True:
+                new_exp = 5
+            else:
+                new_exp = 3
+            my_exp = my_exp + new_exp
+            tbar.set_description(f"Fighting id {my_monster_token_id} - exp: {my_exp}")
+            
+            if self.reset_monster(my_monster_id, my_level, my_exp) == "SUCCESS":
+                my_exp = 0
+                tbar.set_description("RESET successful! COntinue fighting with {my_monster_token_id}...")
 
             if self.auto_lvl_up:
                 # Try to lvl up
@@ -175,6 +186,7 @@ class MetamonPlayer:
                                     headers)
                 code = res.get("code")
                 if code == "SUCCESS":
+                    my_exp = 0
                     tbar.set_description(f"LVL UP successful! Continue fighting with {my_monster_token_id}...")
                     my_level += 1
                     # Update league level if new level is 21 or 41
@@ -230,6 +242,18 @@ class MetamonPlayer:
         monsters = response.get("data", {}).get("data", {})
         return monsters
 
+    def reset_monster(self, my_monster_id, my_level, my_exp):
+        """ Reset monster that has reached its maximum exp (395) at level 60 """
+        if my_exp >= 390 and my_level >= 60 and self.auto_reset_monster:
+            headers = {
+                "accesstoken": self.token,
+            }
+            res = post_formdata({"nftId": my_monster_id, "address": self.address},
+                                RESET_METAMON_URL,
+                                headers)
+            return res.get("code")
+        return None
+
     def battle(self, w_name=None):
         """ Main method to run all battles for the day"""
         if w_name is None:
@@ -258,9 +282,12 @@ class MetamonPlayer:
             level = monster.get("level")
             exp = monster.get("exp")
             if int(exp) >= 600 or (int(level) >= 60 and int(exp) >= 395):
-                print(f"Monster {monster_id} cannot fight due to "
-                      f"exp overflow. Skipping...")
-                continue
+                if self.reset_monster(monster_id, int(level), int(exp)) == "SUCCESS":
+                    print(f"Monster {monster_id} reset successful!")
+                else:
+                    print(f"Monster {monster_id} cannot fight due to "
+                        f"exp overflow. Skipping...")
+                    continue
             battlers = self.list_battlers(monster_id)
             battler = picker_battler(battlers)
             target_monster_id = battler.get("id")
@@ -364,6 +391,8 @@ if __name__ == "__main__":
                         action="store_true", default=False)
     parser.add_argument("-e", "--mint-eggs", help="Automatically mint eggs after all battles done for a day",
                         action="store_true", default=False)
+    parser.add_argument("-ar", "--auto-reset", help="Auto reset monster when lvl 60 and 395 exp", 
+                        action="store_true", default=True)
     parser.add_argument("-s", "--save-results", help="To enable saving results on disk use this option. "
                                                      "Two files <name>_summary.tsv and <name>_stats.tsv will "
                                                      "be saved in current dir.",
@@ -381,12 +410,14 @@ if __name__ == "__main__":
         delim = dialect.delimiter
 
     wallets = pd.read_csv(args.input_tsv, sep=delim)
-
+    auto_reset = args.auto_reset
     auto_lvlup = not args.no_lvlup
+
     for i, r in wallets.iterrows():
         mtm = MetamonPlayer(address=r.address,
                             sign=r.sign,
                             msg=r.msg,
+                            auto_reset_monster=auto_reset,
                             auto_lvl_up=auto_lvlup,
                             output_stats=args.save_results)
 
