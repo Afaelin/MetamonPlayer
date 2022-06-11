@@ -18,6 +18,7 @@ START_FIGHT_URL = f"{BASE_URL}/startBattle"
 LIST_BATTLER_URL = f"{BASE_URL}/getBattelObjects"
 WALLET_PROPERTY_LIST = f"{BASE_URL}/getWalletPropertyList"
 RESET_METAMON_URL = f"{BASE_URL}/resetMonster"
+RESTORE_HEALTHY_URL = f"{BASE_URL}/addHealthy"
 LVL_UP_URL = f"{BASE_URL}/updateMonster"
 MINT_EGG_URL = f"{BASE_URL}/composeMonsterEgg"
 CHECK_BAG_URL = f"{BASE_URL}/checkBag"
@@ -81,6 +82,7 @@ class MetamonPlayer:
                  sign,
                  msg="LogIn",
                  auto_reset_monster=True,
+                 auto_health_monster=True,
                  auto_lvl_up=False,
                  output_stats=False):
         self.no_enough_money = False
@@ -94,6 +96,7 @@ class MetamonPlayer:
         self.sign = sign
         self.msg = msg
         self.auto_reset_monster = auto_reset_monster
+        self.auto_health_monster = auto_health_monster
         self.auto_lvl_up = auto_lvl_up
 
     def init_token(self):
@@ -141,10 +144,11 @@ class MetamonPlayer:
         my_level = my_monster.get("level")
         my_exp = my_monster.get("exp")
         my_power = my_monster.get("sca")
+        my_health = my_monster.get("healthy")
         battle_level = pick_battle_level(my_level)
 
         tbar = trange(loop_count)
-        tbar.set_description(f"Fighting with {my_monster_token_id}...")
+        tbar.set_description(f"Fighting {my_monster_token_id} - exp: {my_exp} - health: {my_health}")
         for _ in tbar:
             payload = {
                 "monsterA": my_monster_id,
@@ -173,11 +177,20 @@ class MetamonPlayer:
             else:
                 new_exp = 3
             my_exp = my_exp + new_exp
-            tbar.set_description(f"Fighting id {my_monster_token_id} - exp: {my_exp}")
+            tbar.set_description(f"Fighting {my_monster_token_id} - exp: {my_exp} - health: {my_health}")
             
             if self.reset_monster(my_monster_id, my_level, my_exp) == "SUCCESS":
                 my_exp = 0
-                tbar.set_description("RESET successful! COntinue fighting with {my_monster_token_id}...")
+                tbar.set_description("RESET successful! Continue fighting with {my_monster_token_id}...")
+                
+            if my_health <= 90 and self.auto_health_monster:
+                res = post_formdata({"nftId": my_monster_id, "address": self.address},
+                                    RESTORE_HEALTHY_URL,
+                                    headers)
+                code = res.get("code")
+                if code == "SUCCESS":
+                    my_health = min(my_health + 10, 100)
+                    tbar.set_description("RESTORED HEALTHY successful! Continue fighting with {my_monster_token_id}...")
 
             if self.auto_lvl_up:
                 # Try to lvl up
@@ -393,6 +406,8 @@ if __name__ == "__main__":
                         action="store_true", default=False)
     parser.add_argument("-ar", "--auto-reset", help="Auto reset monster when lvl 60 and 395 exp", 
                         action="store_true", default=True)
+    parser.add_argument("-ah", "--auto-health", help="Auto health monster when it falls below 90 health", 
+                        action="store_true", default=True)
     parser.add_argument("-s", "--save-results", help="To enable saving results on disk use this option. "
                                                      "Two files <name>_summary.tsv and <name>_stats.tsv will "
                                                      "be saved in current dir.",
@@ -411,6 +426,7 @@ if __name__ == "__main__":
 
     wallets = pd.read_csv(args.input_tsv, sep=delim)
     auto_reset = args.auto_reset
+    auto_health = args.auto_health
     auto_lvlup = not args.no_lvlup
 
     for i, r in wallets.iterrows():
@@ -418,6 +434,7 @@ if __name__ == "__main__":
                             sign=r.sign,
                             msg=r.msg,
                             auto_reset_monster=auto_reset,
+                            auto_health_monster=auto_health,
                             auto_lvl_up=auto_lvlup,
                             output_stats=args.save_results)
 
