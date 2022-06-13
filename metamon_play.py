@@ -299,7 +299,7 @@ class MetamonPlayer:
                     print(f"Monster {monster_id} reset successful!")
                 else:
                     print(f"Monster {monster_id} cannot fight due to "
-                        f"exp overflow. Skipping...")
+                        f"exp overflow.  Skipping...")
                     continue
             battlers = self.list_battlers(monster_id)
             battler = picker_battler(battlers)
@@ -332,6 +332,10 @@ class MetamonPlayer:
 
         stats_df = pd.DataFrame(stats_l)
         print(stats_df)
+
+        summary_file_name = os.path.join(os.path.dirname(os.path.realpath(__file__)), summary_file_name)
+        print("Summary stats should go to: " + summary_file_name)
+
         if os.path.exists(summary_file_name) and self.output_stats:
             back_fn = f"{summary_file_name}.bak"
             os.rename(summary_file_name, back_fn)
@@ -339,20 +343,22 @@ class MetamonPlayer:
             stats_upd_df = pd.concat([stats_df, tmp_df])
             stats_df = stats_upd_df
             os.remove(back_fn)
-
         if self.output_stats:
             stats_df.to_csv(summary_file_name, index=False, sep="\t")
-
-        mtm_stats_df = pd.concat(self.mtm_stats_df)
-        if os.path.exists(mtm_stats_file_name) and self.output_stats:
-            back_fn = f"{mtm_stats_file_name}.bak"
-            os.rename(mtm_stats_file_name, back_fn)
-            tmp_df = pd.read_csv(back_fn, sep="\t", dtype="str")
-            upd_df = pd.concat([mtm_stats_df, tmp_df])
-            mtm_stats_df = upd_df
-            os.remove(back_fn)
-        if self.output_stats:
-            mtm_stats_df.to_csv(mtm_stats_file_name, sep="\t", index=False)
+            
+        if self.mtm_stats_df:
+            mtm_stats_file_name = os.path.join(os.path.dirname(os.path.realpath(__file__)), mtm_stats_file_name)
+            print("Detailed stats should go to: " + mtm_stats_file_name)
+            mtm_stats_df = pd.concat(self.mtm_stats_df)
+            if os.path.exists(mtm_stats_file_name) and self.output_stats:
+                back_fn = f"{mtm_stats_file_name}.bak"
+                os.rename(mtm_stats_file_name, back_fn)
+                tmp_df = pd.read_csv(back_fn, sep="\t", dtype="str")
+                upd_df = pd.concat([mtm_stats_df, tmp_df])
+                mtm_stats_df = upd_df
+                os.remove(back_fn)
+            if self.output_stats:
+                mtm_stats_df.to_csv(mtm_stats_file_name, sep="\t", index=False)
 
     def mint_eggs(self):
         self.init_token()
@@ -411,7 +417,7 @@ if __name__ == "__main__":
     parser.add_argument("-s", "--save-results", help="To enable saving results on disk use this option. "
                                                      "Two files <name>_summary.tsv and <name>_stats.tsv will "
                                                      "be saved in current dir.",
-                        action="store_true", default=False)
+                        action="store_true", default=True)
 
     args = parser.parse_args()
 
